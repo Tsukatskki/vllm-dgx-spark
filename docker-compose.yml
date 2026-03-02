@@ -1,0 +1,53 @@
+name: ${PROJECT_NAME:-vllm-single}
+
+services:
+  vllm:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        BASE_IMAGE: ${VLLM_IMAGE:-nvcr.io/nvidia/vllm:25.11-py3}
+    container_name: ${CONTAINER_NAME:-vllm-single}
+    restart: unless-stopped
+    network_mode: host
+    gpus: all
+    shm_size: ${SHM_SIZE:-16g}
+    cap_add:
+      - SYS_NICE
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    devices:
+      - /dev/infiniband:/dev/infiniband
+    env_file:
+      - config.env
+    environment:
+      HF_HOME: /root/.cache/huggingface
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: all
+    volumes:
+      - ${HF_CACHE:-/raid/hf-cache}:/root/.cache/huggingface
+    command: >
+      bash -lc '
+      set -euo pipefail;
+      EXTRA_FLAGS="";
+      if [[ "${ENABLE_EXPERT_PARALLEL}" == "true" ]]; then EXTRA_FLAGS="$$EXTRA_FLAGS --enable-expert-parallel"; fi;
+      if [[ "${TRUST_REMOTE_CODE}" == "true" ]]; then EXTRA_FLAGS="$$EXTRA_FLAGS --trust-remote-code"; fi;
+      if [[ -n "${HF_TOKEN:-}" ]]; then export HF_TOKEN="${HF_TOKEN}"; fi;
+      exec vllm serve "${MODEL}" \
+        --host 0.0.0.0 \
+        --port "${VLLM_PORT}" \
+        --tensor-parallel-size "${TENSOR_PARALLEL}" \
+        --max-model-len "${MAX_MODEL_LEN}" \
+        --gpu-memory-utilization "${GPU_MEMORY_UTIL}" \
+        --swap-space "${SWAP_SPACE}" \
+        --download-dir /root/.cache/huggingface \
+        --load-format "${LOAD_FORMAT}" \
+        $$EXTRA_FLAGS ${EXTRA_ARGS};
+      '
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:${VLLM_PORT}/health >/dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 120s
