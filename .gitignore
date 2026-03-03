@@ -1,5 +1,7 @@
 # Local configuration (contains secrets like HF_TOKEN, IPs)
 config.local.env
+.env
+
 
 # Benchmark results (may contain system-specific data)
 benchmark_results/
